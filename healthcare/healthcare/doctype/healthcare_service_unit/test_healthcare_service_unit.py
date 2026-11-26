@@ -12,9 +12,6 @@ from healthcare.tests.utils import HealthcareTestSuite
 
 
 class TestHealthcareServiceUnit(HealthcareTestSuite):
-	def tearDown(self):
-		frappe.db.set_single_value("Healthcare Settings", "manage_inpatient_medication_stock", 0)
-
 	def test_create_company_should_create_root_service_unit(self):
 		company = frappe.get_doc(
 			{
@@ -31,6 +28,22 @@ class TestHealthcareServiceUnit(HealthcareTestSuite):
 		filters = {"company": company.name, "parent_healthcare_service_unit": None}
 		root_service_unit = frappe.db.exists("Healthcare Service Unit", filters)
 		self.assertTrue(root_service_unit)
+
+	def test_saving_a_bed_without_status_makes_it_vacant(self):
+		bed = create_beds("_Test Ward D")[0]
+		bed.db_set("occupancy_status", "")
+
+		bed.reload().save()
+
+		self.assertEqual(bed.reload().occupancy_status, "Vacant")
+
+	def test_saving_an_occupied_bed_keeps_it_occupied(self):
+		bed = create_beds("_Test Ward E")[0]
+		bed.db_set("occupancy_status", "Occupied")
+
+		bed.reload().save()
+
+		self.assertEqual(bed.reload().occupancy_status, "Occupied")
 
 	def test_beds_created_in_bulk_get_a_warehouse_each(self):
 		frappe.db.set_single_value("Healthcare Settings", "manage_inpatient_medication_stock", 1)

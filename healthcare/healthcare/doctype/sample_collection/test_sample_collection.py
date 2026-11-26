@@ -5,9 +5,6 @@ import json
 
 import frappe
 
-from healthcare.healthcare.doctype.observation_template.test_observation_template import (
-	create_multi_level_template,
-)
 from healthcare.healthcare.doctype.sample_collection.sample_collection import (
 	SampleCollection,
 	create_component_observations,
@@ -17,6 +14,7 @@ from healthcare.healthcare.doctype.sample_collection.sample_collection import (
 	mark_component_collected,
 	set_component_observation_data,
 )
+from healthcare.tests.factories.lab import create_lab_sample_leaf, create_multi_level_template
 from healthcare.tests.utils import HealthcareTestSuite
 
 
@@ -120,6 +118,35 @@ class TestSampleCollection(HealthcareTestSuite):
 		# immediate parent is the sub-panel's own Observation.
 		self.assertEqual(leaf_observation[0]["parent_observation"], sub_panel_observation_name)
 
+	def test_collecting_a_deeply_nested_leaf_uses_child_row_practitioner(self):
+		package, _sub_panel, leaf = create_multi_level_template()
+		practitioner = "_Test Healthcare Practitioner 2"
+		doc = new_sample_collection_with_package(package)
+		row = doc.observation_sample_collection[0]
+		row.practitioner = practitioner
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		row = doc.observation_sample_collection[0]
+
+		sub_panel_data = json.loads(row.component_observations)[0]
+		leaf_data = json.loads(sub_panel_data["component_observations"])[0]
+
+		insert_observation(
+			selected=json.dumps([leaf_data]),
+			sample_collection=doc.name,
+			component_observations=row.component_observations,
+			child_name=row.name,
+		)
+
+		self.assertEqual(
+			frappe.db.get_value(
+				"Observation",
+				{"observation_template": leaf.name, "reference_docname": doc.name},
+				"healthcare_practitioner",
+			),
+			practitioner,
+		)
+
 	def test_collecting_leaves_at_different_nesting_depths_does_not_cross_contaminate_specimens(self):
 		# idx collides across nesting levels - this used to make one leaf
 		# steal the other's specimen when collected in the same batch.
@@ -208,25 +235,6 @@ def create_sibling_and_nested_leaf_template():
 		package.insert()
 
 	return package, sub_panel, urine_leaf, serum_leaf
-
-
-def create_lab_sample_leaf(name, sample):
-	if frappe.db.exists("Observation Template", name):
-		return frappe.get_doc("Observation Template", name)
-	template = frappe.new_doc("Observation Template")
-	template.observation = name
-	template.item_code = name
-	template.observation_category = "Laboratory"
-	template.permitted_data_type = "Quantity"
-	template.permitted_unit = "mg / dl"
-	template.item_group = "Services"
-	template.sample_collection_required = 1
-	template.sample = sample
-	template.rate = 300
-	template.abbr = "".join(w[0] for w in name.split())
-	template.is_billable = 1
-	template.save()
-	return template
 
 
 def new_sample_collection():
